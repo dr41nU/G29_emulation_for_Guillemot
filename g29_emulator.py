@@ -96,12 +96,29 @@ class G29Emulator:
 
     def create_uinput_device(self):
         """Crée un périphérique virtuel uinput émulant un G29"""
-        # Vérifier que /dev/uinput existe
+        # Vérifier que /dev/uinput existe et est accessible
         import os
-        if not os.path.exists('/dev/uinput'):
+        import stat
+        
+        uinput_path = '/dev/uinput'
+        if not os.path.exists(uinput_path):
+            # Essayer de créer le device node si le module est chargé
+            try:
+                os.mknod(uinput_path, stat.S_IFCHR | 0o666, os.makedev(10, 223))
+                logger.info("Création de /dev/uinput réussie")
+            except Exception as e:
+                raise RuntimeError(
+                    f"Le périphérique {uinput_path} n'existe pas et ne peut pas être créé. "
+                    f"Erreur: {e}. "
+                    "Vérifiez que le module uinput est chargé (lsmod | grep uinput) "
+                    "et que vous avez les permissions root."
+                )
+        
+        # Vérifier les permissions
+        if not os.access(uinput_path, os.R_OK | os.W_OK):
             raise RuntimeError(
-                "Le module uinput du noyau n'est pas chargé. "
-                "Exécutez: sudo modprobe uinput"
+                f"Pas de permissions en lecture/écriture sur {uinput_path}. "
+                "Exécutez: sudo chmod 666 /dev/uinput"
             )
         
         # Capacités du G29
