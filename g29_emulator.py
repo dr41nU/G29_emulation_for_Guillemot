@@ -93,6 +93,8 @@ class G29Emulator:
         self.running = False
         self.ff_thread = None
         self.last_axis_values = {}
+        self.ff_effect_map = {}
+        self.next_guillemot_effect_id = 1
 
     def find_guillemot_device(self):
         """Trouve le périphérique Guillemot (06f8:0004)"""
@@ -276,8 +278,6 @@ class G29Emulator:
 
         elif event.type == ecodes.EV_FF:
             # Transmettre les effets de force au périphérique uinput
-            # Pour uinput, il faut écrire les paramètres de l'effet
-            # On transmet directement les données brutes de l'événement
             try:
                 self.uinput_device.write(ecodes.EV_FF, event.code, event.value)
             except Exception as e:
@@ -289,6 +289,54 @@ class G29Emulator:
                 self.uinput_device.write(ecodes.EV_FF_STATUS, event.code, event.value)
             except Exception as e:
                 logger.debug(f"FF_STATUS write error: {e}")
+    
+    def handle_ff_command(self, event):
+        """Gère les commandes FF reçues sur uinput et les transmet au Guillemot"""
+        if event.type == ecodes.EV_FF:
+            if event.code in [ecodes.FF_RUMBLE, ecodes.FF_CONSTANT, ecodes.FF_SPRING,
+                              ecodes.FF_DAMPER, ecodes.FF_SQUARE, ecodes.FF_TRIANGLE,
+                              ecodes.FF_SINE, ecodes.FF_SAW_UP, ecodes.FF_SAW_DOWN]:
+                guillemot_effect_id = self.next_guillemot_effect_id
+                self.next_guillemot_effect_id += 1
+                self.ff_effect_map[event.value] = guillemot_effect_id
+                try:
+                    self.source_device.write(ecodes.EV_FF, event.code, event.value)
+                    self.source_device.syn()
+                    logger.debug(f"FF effect created: uinput_id={event.value}, guillemot_id={guillemot_effect_id}")
+                except Exception as e:
+                    logger.warning(f"Erreur creation effet FF: {e}")
+                    
+            elif event.code == ecodes.FF_START:
+                if event.value in self.ff_effect_map:
+                    try:
+                        self.source_device.write(ecodes.EV_FF, ecodes.FF_START, self.ff_effect_map[event.value])
+                        self.source_device.syn()
+                        logger.debug(f"FF effect started: uinput_id={event.value}, guillemot_id={self.ff_effect_map[event.value]}")
+                    except Exception as e:
+                        logger.warning(f"Erreur demarrage effet FF: {e}")
+                        
+            elif event.code == ecodes.FF_STOP:
+                if event.value in self.ff_effect_map:
+                    try:
+                        self.source_device.write(ecodes.EV_FF, ecodes.FF_STOP, self.ff_effect_map[event.value])
+                        self.source_device.syn()
+                        logger.debug(f"FF effect stopped: uinput_id={event.value}, guillemot_id={self.ff_effect_map[event.value]}")
+                    except Exception as e:
+                        logger.warning(f"Erreur arret effet FF: {e}")
+                        
+            elif event.code in [ecodes.FF_SET_GAIN, ecodes.FF_SET_AUTOCENTER]:
+                try:
+                    self.source_device.write(ecodes.EV_FF, event.code, event.value)
+                    self.source_device.syn()
+                except Exception as e:
+                    logger.warning(f"Erreur parametre FF: {e}")
+        
+        elif event.type == ecodes.EV_FF_STATUS:
+            try:
+                self.source_device.write(ecodes.EV_FF_STATUS, event.code, event.value)
+                self.source_device.syn()
+            except Exception as e:
+                logger.debug(f"FF_STATUS relay error: {e}")
 
     def run(self):
         """Boucle principale avec select() pour FF bidirectionnel"""
@@ -332,14 +380,7 @@ class G29Emulator:
                 if uinput_fd and uinput_fd in rlist:
                     try:
                         for event in self.uinput_input_device.read():
-                            # Relayer les commandes FF vers le Guillemot
-                            if event.type == ecodes.EV_FF or event.type == ecodes.EV_FF_STATUS:
-                                try:
-                                    self.source_device.write(event.type, event.code, event.value)
-                                    self.source_device.syn()
-                                    logger.debug(f"FF relayed: type={event.type}, code={event.code}, value={event.value}")
-                                except Exception as e:
-                                    logger.warning(f"Erreur relais FF: {e}")
+                            self.handle_ff_command(event)
                     except (BlockingIOError, OSError):
                         pass  # Aucun événement disponible
                 
