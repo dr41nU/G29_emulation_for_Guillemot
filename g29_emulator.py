@@ -12,6 +12,8 @@ import signal
 import logging
 import threading
 import glob
+import select
+import fcntl
 from evdev import ecodes, InputDevice, UInput, categorize, list_devices
 
 # Configuration du logging
@@ -254,42 +256,61 @@ class G29Emulator:
             except Exception as e:
                 logger.debug(f"FF_STATUS write error: {e}")
 
-    def ff_listener(self):
-        """Thread qui écoute les commandes FF envoyées à uinput et les transmet au Guillemot"""
-        if not self.uinput_input_device:
-            return
-        logger.info("Demarrage du thread FF listener...")
-        try:
-            for event in self.uinput_input_device.read_loop():
-                if not self.running:
-                    break
-                if event.type == ecodes.EV_FF or event.type == ecodes.EV_FF_STATUS:
-                    try:
-                        self.source_device.write(event.type, event.code, event.value)
-                        self.source_device.syn()
-                    except Exception as e:
-                        logger.debug(f"Erreur transmission FF: {e}")
-        except Exception as e:
-            logger.error(f"Erreur dans le thread FF listener: {e}")
-
     def run(self):
-        """Boucle principale avec threading pour FF bidirectionnel"""
+        """Boucle principale avec select() pour FF bidirectionnel"""
         signal.signal(signal.SIGINT, self.signal_handler)
         signal.signal(signal.SIGTERM, self.signal_handler)
 
         self.running = True
         logger.info("Demarrage de l'emulation G29 avec support FF bidirectionnel...")
 
-        # Démarrer le thread FF listener
-        if self.uinput_input_device:
-            self.ff_thread = threading.Thread(target=self.ff_listener, daemon=True)
-            self.ff_thread.start()
-
+        # Ouvrir les file descriptors pour select()
+        source_fd = self.source_device.fd
+        uinput_fd = self.uinput_input_device.fd if self.uinput_input_device else None
+        
+        # Rendre les FDs non-bloquants
+        if uinput_fd:
+            fcntl.fcntl(uinput_fd, fcntl.F_SETFL, os.O_NONBLOCK)
+        fcntl.fcntl(source_fd, fcntl.F_SETFL, os.O_NONBLOCK)
+        
         try:
-            for event in self.source_device.read_loop():
-                if not self.running:
+            while self.running:
+                # Préparer les FDs pour select
+                read_fds = [source_fd]
+                if uinput_fd:
+                    read_fds.append(uinput_fd)
+                
+                # Attendre qu'un des FDs soit prêt en lecture
+                try:
+                    rlist, _, _ = select.select(read_fds, [], [], 0.1)
+                except InterruptedError:
                     break
-                self.handle_event(event)
+                
+                # Lire depuis le périphérique source (Guillemot)
+                if source_fd in rlist:
+                    try:
+                        for event in self.source_device.read():
+                            self.handle_event(event)
+                    except (BlockingIOError, OSError):
+                        pass  # Aucun événement disponible
+                
+                # Lire depuis le périphérique uinput (pour les commandes FF)
+                if uinput_fd and uinput_fd in rlist:
+                    try:
+                        for event in self.uinput_input_device.read():
+                            # Relayer les commandes FF vers le Guillemot
+                            if event.type == ecodes.EV_FF or event.type == ecodes.EV_FF_STATUS:
+                                try:
+                                    self.source_device.write(event.type, event.code, event.value)
+                                    self.source_device.syn()
+                                    logger.debug(f"FF relayed: type={event.type}, code={event.code}, value={event.value}")
+                                except Exception as e:
+                                    logger.warning(f"Erreur relais FF: {e}")
+                    except (BlockingIOError, OSError):
+                        pass  # Aucun événement disponible
+                
+                # Petit sleep pour éviter la boucle serrée
+                time.sleep(0.001)
         except Exception as e:
             logger.error(f"Erreur dans la boucle principale: {e}")
         finally:
@@ -303,8 +324,6 @@ class G29Emulator:
     def cleanup(self):
         """Nettoie les ressources"""
         self.running = False
-        if self.ff_thread:
-            self.ff_thread.join(timeout=1)
         if self.uinput_input_device:
             self.uinput_input_device.close()
         if self.uinput_device:
