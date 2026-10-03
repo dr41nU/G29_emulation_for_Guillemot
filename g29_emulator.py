@@ -96,26 +96,43 @@ class G29Emulator:
 
     def create_uinput_device(self):
         """Crée un périphérique virtuel uinput émulant un G29"""
+        # Vérifier que /dev/uinput existe
+        import os
+        if not os.path.exists('/dev/uinput'):
+            raise RuntimeError(
+                "Le module uinput du noyau n'est pas chargé. "
+                "Exécutez: sudo modprobe uinput"
+            )
+        
         # Capacités du G29
         # Pour UInput, EV_ABS prend une liste de codes d'axes (pas de tuples)
         abs_axes = [
-            0,   # ABS_X (volant)
-            9,   # ABS_GAS
-            10,  # ABS_BRAKE
-            16,  # ABS_HAT0X
-            17,  # ABS_HAT0Y
+            ecodes.ABS_X,      # Volant
+            ecodes.ABS_GAS,    # Accélérateur
+            ecodes.ABS_BRAKE,  # Frein
+            ecodes.ABS_HAT0X, # D-pad X
+            ecodes.ABS_HAT0Y, # D-pad Y
         ]
         
         capabilities = {
             # Événements de synchronisation
-            ecodes.EV_SYN: [0],  # SYN_REPORT
-            # Boutons
-            ecodes.EV_KEY: list(BUTTON_MAP.values()) + [336, 337],  # Inclure les palettes
+            ecodes.EV_SYN: [ecodes.SYN_REPORT],
+            # Boutons (tous les boutons mappés, y compris les palettes)
+            ecodes.EV_KEY: list(BUTTON_MAP.values()),
             # Axes
             ecodes.EV_ABS: abs_axes,
-            # Effets de force (FF)
-            ecodes.EV_FF: FF_EFFECTS,
-            ecodes.EV_FF_STATUS: [0],
+            # Effets de force (FF) - seulement les codes valides
+            ecodes.EV_FF: [
+                ecodes.FF_RUMBLE,
+                ecodes.FF_CONSTANT,
+                ecodes.FF_SPRING,
+                ecodes.FF_DAMPER,
+                ecodes.FF_SQUARE,
+                ecodes.FF_TRIANGLE,
+                ecodes.FF_SINE,
+                ecodes.FF_GAIN,
+                ecodes.FF_AUTOCENTER,
+            ],
         }
 
         # Création du périphérique uinput
