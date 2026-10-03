@@ -16,6 +16,16 @@ import select
 import fcntl
 from evdev import ecodes, InputDevice, UInput, categorize, list_devices
 
+# Ajouter les constantes FF manquantes (non définies dans evdev 2.0.0)
+if not hasattr(ecodes, 'FF_START'):
+    ecodes.FF_START = 0x80
+if not hasattr(ecodes, 'FF_STOP'):
+    ecodes.FF_STOP = 0x81
+if not hasattr(ecodes, 'FF_SET_GAIN'):
+    ecodes.FF_SET_GAIN = 0x82
+if not hasattr(ecodes, 'FF_SET_AUTOCENTER'):
+    ecodes.FF_SET_AUTOCENTER = 0x83
+
 # Configuration du logging
 logging.basicConfig(level=logging.INFO, format="%(asctime)s - %(levelname)s - %(message)s")
 logger = logging.getLogger("G29Emulator")
