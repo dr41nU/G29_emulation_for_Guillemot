@@ -131,14 +131,25 @@ class G29Emulator:
             ecodes.ABS_HAT0Y, # D-pad Y
         ]
         
+        # Capacités du G29 avec support Force Feedback
         capabilities = {
             # Boutons (tous les boutons mappés)
             ecodes.EV_KEY: list(BUTTON_MAP.values()),
             # Axes
             ecodes.EV_ABS: abs_axes,
+            # Effets de force feedback
+            ecodes.EV_FF: [
+                ecodes.FF_RUMBLE,
+                ecodes.FF_CONSTANT,
+                ecodes.FF_SPRING,
+                ecodes.FF_DAMPER,
+                ecodes.FF_SQUARE,
+                ecodes.FF_TRIANGLE,
+                ecodes.FF_SINE,
+            ],
         }
 
-        # Création du périphérique uinput
+        # Création du périphérique uinput avec support FF
         try:
             self.uinput_device = UInput(
                 events=capabilities,
@@ -148,6 +159,7 @@ class G29Emulator:
                 version=0x0110,
                 bustype=ecodes.BUS_USB,
                 devnode=uinput_path,
+                max_effects=96,  # Nombre maximum d'effets simultanés
             )
         except Exception as e:
             # Essayer sans vendor/product/version/bustype si ça échoue
@@ -157,6 +169,7 @@ class G29Emulator:
                     events=capabilities,
                     name="Logitech G29 Racing Wheel",
                     devnode=uinput_path,
+                    max_effects=96,
                 )
             except Exception as e2:
                 logger.error(f"Failed to create UInput device: {e2}")
@@ -200,12 +213,20 @@ class G29Emulator:
                 self.uinput_device.write(ecodes.EV_ABS, mapped_code, mapped_value)
 
         elif event.type == ecodes.EV_FF:
-            # Transmettre les effets de force sans modification
-            self.uinput_device.write(ecodes.EV_FF, event.code, event.value)
+            # Transmettre les effets de force au périphérique uinput
+            # Pour uinput, il faut écrire les paramètres de l'effet
+            # On transmet directement les données brutes de l'événement
+            try:
+                self.uinput_device.write(ecodes.EV_FF, event.code, event.value)
+            except Exception as e:
+                logger.debug(f"FF write error: {e}")
 
         elif event.type == ecodes.EV_FF_STATUS:
             # Transmettre les statuts FF
-            self.uinput_device.write(ecodes.EV_FF_STATUS, event.code, event.value)
+            try:
+                self.uinput_device.write(ecodes.EV_FF_STATUS, event.code, event.value)
+            except Exception as e:
+                logger.debug(f"FF_STATUS write error: {e}")
 
     def run(self):
         """Boucle principale de lecture/transmission des evenements"""
