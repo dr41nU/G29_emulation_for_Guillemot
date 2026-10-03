@@ -10,6 +10,8 @@ import sys
 import time
 import signal
 import logging
+import threading
+import glob
 from evdev import ecodes, InputDevice, UInput, categorize, list_devices
 
 # Configuration du logging
@@ -74,8 +76,11 @@ class G29Emulator:
     def __init__(self):
         self.source_device = None
         self.uinput_device = None
+        self.uinput_input_device = None
+        self.uinput_device_node = None
         self.running = False
-        self.last_axis_values = {}  # Pour éviter les doublons d'événements
+        self.ff_thread = None
+        self.last_axis_values = {}
 
     def find_guillemot_device(self):
         """Trouve le périphérique Guillemot (06f8:0004)"""
@@ -175,6 +180,27 @@ class G29Emulator:
                 logger.error(f"Failed to create UInput device: {e2}")
                 raise RuntimeError(f"Impossible de créer le périphérique uinput: {e2}")
         logger.info("Peripherique uinput G29 cree avec succes.")
+        
+        # Trouver le device node créé par uinput
+        self.find_uinput_device_node()
+
+    def find_uinput_device_node(self):
+        """Trouve le device node créé par uinput (ex: /dev/input/event18)"""
+        time.sleep(0.5)
+        devices_before = set(glob.glob('/dev/input/event*'))
+        self.uinput_device.syn()
+        time.sleep(0.5)
+        devices_after = set(glob.glob('/dev/input/event*'))
+        new_devices = devices_after - devices_before
+        if new_devices:
+            self.uinput_device_node = max(new_devices)
+            logger.info(f"Device node uinput trouve: {self.uinput_device_node}")
+            try:
+                self.uinput_input_device = InputDevice(self.uinput_device_node)
+            except Exception as e:
+                logger.warning(f"Ne peut pas ouvrir {self.uinput_device_node} en lecture: {e}")
+        else:
+            logger.warning("Impossible de trouver le device node uinput")
 
     def map_axis_value(self, axis_code, value):
         """Mappe la valeur d'un axe du Guillemot vers le G29"""
@@ -228,13 +254,36 @@ class G29Emulator:
             except Exception as e:
                 logger.debug(f"FF_STATUS write error: {e}")
 
+    def ff_listener(self):
+        """Thread qui écoute les commandes FF envoyées à uinput et les transmet au Guillemot"""
+        if not self.uinput_input_device:
+            return
+        logger.info("Demarrage du thread FF listener...")
+        try:
+            for event in self.uinput_input_device.read_loop():
+                if not self.running:
+                    break
+                if event.type == ecodes.EV_FF or event.type == ecodes.EV_FF_STATUS:
+                    try:
+                        self.source_device.write(event.type, event.code, event.value)
+                        self.source_device.syn()
+                    except Exception as e:
+                        logger.debug(f"Erreur transmission FF: {e}")
+        except Exception as e:
+            logger.error(f"Erreur dans le thread FF listener: {e}")
+
     def run(self):
-        """Boucle principale de lecture/transmission des evenements"""
+        """Boucle principale avec threading pour FF bidirectionnel"""
         signal.signal(signal.SIGINT, self.signal_handler)
         signal.signal(signal.SIGTERM, self.signal_handler)
 
         self.running = True
-        logger.info("Demarrage de l'emulation G29... (Ctrl+C pour arreter)")
+        logger.info("Demarrage de l'emulation G29 avec support FF bidirectionnel...")
+
+        # Démarrer le thread FF listener
+        if self.uinput_input_device:
+            self.ff_thread = threading.Thread(target=self.ff_listener, daemon=True)
+            self.ff_thread.start()
 
         try:
             for event in self.source_device.read_loop():
@@ -242,7 +291,7 @@ class G29Emulator:
                     break
                 self.handle_event(event)
         except Exception as e:
-            logger.error(f"Erreur dans la boucle d'evenements: {e}")
+            logger.error(f"Erreur dans la boucle principale: {e}")
         finally:
             self.cleanup()
 
@@ -253,13 +302,17 @@ class G29Emulator:
 
     def cleanup(self):
         """Nettoie les ressources"""
+        self.running = False
+        if self.ff_thread:
+            self.ff_thread.join(timeout=1)
+        if self.uinput_input_device:
+            self.uinput_input_device.close()
         if self.uinput_device:
             self.uinput_device.close()
             logger.info("Peripherique uinput ferme.")
         if self.source_device:
             self.source_device.close()
             logger.info("Peripherique source ferme.")
-        self.running = False
 
 
 def main():
