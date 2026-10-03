@@ -97,49 +97,22 @@ class G29Emulator:
     def create_uinput_device(self):
         """Crée un périphérique virtuel uinput émulant un G29"""
         # Capacités du G29
+        # Pour UInput, EV_ABS prend une liste de codes d'axes (pas de tuples)
+        abs_axes = [
+            0,   # ABS_X (volant)
+            9,   # ABS_GAS
+            10,  # ABS_BRAKE
+            16,  # ABS_HAT0X
+            17,  # ABS_HAT0Y
+        ]
+        
         capabilities = {
             # Événements de synchronisation
             ecodes.EV_SYN: [0],  # SYN_REPORT
             # Boutons
-            ecodes.EV_KEY: list(BUTTON_MAP.values()),
+            ecodes.EV_KEY: list(BUTTON_MAP.values()) + [336, 337],  # Inclure les palettes
             # Axes
-            ecodes.EV_ABS: [
-                # Volant (ABS_X)
-                (0, ecodes.AbsInfo(
-                    min=WHEEL_MIN_G29,
-                    max=WHEEL_MAX_G29,
-                    fuzz=0,
-                    flat=0,
-                )),
-                # Gaz (ABS_GAS)
-                (9, ecodes.AbsInfo(
-                    min=0,
-                    max=255,
-                    fuzz=0,
-                    flat=0,
-                )),
-                # Frein (ABS_BRAKE)
-                (10, ecodes.AbsInfo(
-                    min=0,
-                    max=255,
-                    fuzz=0,
-                    flat=0,
-                )),
-                # D-pad X
-                (16, ecodes.AbsInfo(
-                    min=-1,
-                    max=1,
-                    fuzz=0,
-                    flat=0,
-                )),
-                # D-pad Y
-                (17, ecodes.AbsInfo(
-                    min=-1,
-                    max=1,
-                    fuzz=0,
-                    flat=0,
-                )),
-            ],
+            ecodes.EV_ABS: abs_axes,
             # Effets de force (FF)
             ecodes.EV_FF: FF_EFFECTS,
             ecodes.EV_FF_STATUS: [0],
@@ -147,10 +120,10 @@ class G29Emulator:
 
         # Création du périphérique uinput
         self.uinput_device = UInput(
-            capabilities=capabilities,
+            events=capabilities,
             name="Logitech G29 Racing Wheel",
             vendor=0x046D,  # Logitech vendor ID
-            product=0xC299,  # G29 product ID (exemple)
+            product=0xC299,  # G29 product ID
             version=0x0110,
             bustype=ecodes.BUS_USB,
         )
