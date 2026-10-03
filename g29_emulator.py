@@ -132,8 +132,6 @@ class G29Emulator:
         ]
         
         capabilities = {
-            # Événements de synchronisation
-            ecodes.EV_SYN: [ecodes.SYN_REPORT],
             # Boutons (tous les boutons mappés)
             ecodes.EV_KEY: list(BUTTON_MAP.values()),
             # Axes
@@ -149,14 +147,20 @@ class G29Emulator:
                 product=0xC299,  # G29 product ID
                 version=0x0110,
                 bustype=ecodes.BUS_USB,
+                devnode=uinput_path,
             )
         except Exception as e:
             # Essayer sans vendor/product/version/bustype si ça échoue
             logger.warning(f"First UInput attempt failed: {e}, trying minimal config...")
-            self.uinput_device = UInput(
-                events=capabilities,
-                name="Logitech G29 Racing Wheel",
-            )
+            try:
+                self.uinput_device = UInput(
+                    events=capabilities,
+                    name="Logitech G29 Racing Wheel",
+                    devnode=uinput_path,
+                )
+            except Exception as e2:
+                logger.error(f"Failed to create UInput device: {e2}")
+                raise RuntimeError(f"Impossible de créer le périphérique uinput: {e2}")
         logger.info("Peripherique uinput G29 cree avec succes.")
 
     def map_axis_value(self, axis_code, value):
