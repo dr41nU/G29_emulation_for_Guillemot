@@ -124,14 +124,22 @@ class G29Emulator:
         }
 
         # Création du périphérique uinput
-        self.uinput_device = UInput(
-            events=capabilities,
-            name="Logitech G29 Racing Wheel",
-            vendor=0x046D,  # Logitech vendor ID
-            product=0xC299,  # G29 product ID
-            version=0x0110,
-            bustype=ecodes.BUS_USB,
-        )
+        try:
+            self.uinput_device = UInput(
+                events=capabilities,
+                name="Logitech G29 Racing Wheel",
+                vendor=0x046D,  # Logitech vendor ID
+                product=0xC299,  # G29 product ID
+                version=0x0110,
+                bustype=ecodes.BUS_USB,
+            )
+        except Exception as e:
+            # Essayer sans vendor/product/version/bustype si ça échoue
+            logger.warning(f"First UInput attempt failed: {e}, trying minimal config...")
+            self.uinput_device = UInput(
+                events=capabilities,
+                name="Logitech G29 Racing Wheel",
+            )
         logger.info("Peripherique uinput G29 cree avec succes.")
 
     def map_axis_value(self, axis_code, value):
