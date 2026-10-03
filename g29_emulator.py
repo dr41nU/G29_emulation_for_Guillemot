@@ -117,22 +117,10 @@ class G29Emulator:
         capabilities = {
             # Événements de synchronisation
             ecodes.EV_SYN: [ecodes.SYN_REPORT],
-            # Boutons (tous les boutons mappés, y compris les palettes)
+            # Boutons (tous les boutons mappés)
             ecodes.EV_KEY: list(BUTTON_MAP.values()),
             # Axes
             ecodes.EV_ABS: abs_axes,
-            # Effets de force (FF) - seulement les codes valides
-            ecodes.EV_FF: [
-                ecodes.FF_RUMBLE,
-                ecodes.FF_CONSTANT,
-                ecodes.FF_SPRING,
-                ecodes.FF_DAMPER,
-                ecodes.FF_SQUARE,
-                ecodes.FF_TRIANGLE,
-                ecodes.FF_SINE,
-                ecodes.FF_GAIN,
-                ecodes.FF_AUTOCENTER,
-            ],
         }
 
         # Création du périphérique uinput
