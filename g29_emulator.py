@@ -187,22 +187,46 @@ class G29Emulator:
         self.find_uinput_device_node()
 
     def find_uinput_device_node(self):
-        """Trouve le device node créé par uinput (ex: /dev/input/event18)"""
-        time.sleep(0.5)
-        devices_before = set(glob.glob('/dev/input/event*'))
-        self.uinput_device.syn()
-        time.sleep(0.5)
-        devices_after = set(glob.glob('/dev/input/event*'))
-        new_devices = devices_after - devices_before
-        if new_devices:
-            self.uinput_device_node = max(new_devices)
-            logger.info(f"Device node uinput trouve: {self.uinput_device_node}")
+        """Trouve le device node créé par uinput par son nom"""
+        time.sleep(1)  # Attendre que le device soit créé
+        
+        # Méthode 1: Chercher par nom
+        for path in sorted(glob.glob('/dev/input/event*'), key=lambda x: int(x.split('event')[-1]), reverse=True):
             try:
-                self.uinput_input_device = InputDevice(self.uinput_device_node)
+                device = InputDevice(path)
+                if device.name == "Logitech G29 Racing Wheel":
+                    self.uinput_device_node = path
+                    self.uinput_input_device = device
+                    logger.info(f"Device node uinput trouve: {self.uinput_device_node}")
+                    return
+            except Exception:
+                continue
+        
+        # Méthode 2: Chercher par vendor/product
+        for path in sorted(glob.glob('/dev/input/event*'), key=lambda x: int(x.split('event')[-1]), reverse=True):
+            try:
+                device = InputDevice(path)
+                if (device.info.vendor == 0x046D and device.info.product == 0xC299):
+                    self.uinput_device_node = path
+                    self.uinput_input_device = device
+                    logger.info(f"Device node uinput trouve par ID: {self.uinput_device_node}")
+                    return
+            except Exception:
+                continue
+        
+        # Méthode 3: Prendre le dernier device event
+        logger.warning("Impossible de trouver le device node uinput par nom/ID, tentative avec le dernier event...")
+        event_files = sorted(glob.glob('/dev/input/event*'), key=lambda x: int(x.split('event')[-1]), reverse=True)
+        if event_files:
+            last_event = event_files[0]
+            try:
+                self.uinput_device_node = last_event
+                self.uinput_input_device = InputDevice(last_event)
+                logger.info(f"Device node uinput (dernier): {self.uinput_device_node}")
             except Exception as e:
-                logger.warning(f"Ne peut pas ouvrir {self.uinput_device_node} en lecture: {e}")
+                logger.error(f"Echec ouverture {last_event}: {e}")
         else:
-            logger.warning("Impossible de trouver le device node uinput")
+            logger.error("Aucun device node event trouvé")
 
     def map_axis_value(self, axis_code, value):
         """Mappe la valeur d'un axe du Guillemot vers le G29"""
