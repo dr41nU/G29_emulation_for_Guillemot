@@ -86,7 +86,7 @@ class G29Emulator:
                 and device.info.product == GUILLEMOT_PRODUCT_ID
             ):
                 logger.info(
-                    f"Peripherique Guillemot trouve: {device.name} ({device.fn})"
+                    f"Peripherique Guillemot trouve: {device.name} ({device.path})"
                 )
                 return device
         raise RuntimeError(
@@ -242,8 +242,7 @@ def main():
 
     try:
         emulator = G29Emulator()
-        emulator.find_guillemot_device()
-        emulator.source_device = InputDevice(emulator.find_guillemot_device().fn)
+        emulator.source_device = emulator.find_guillemot_device()
         emulator.create_uinput_device()
         emulator.run()
     except Exception as e:
